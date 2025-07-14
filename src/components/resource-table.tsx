@@ -1,7 +1,6 @@
-// src/components/resource-table.tsx
 "use client";
 
-import React from "react";
+import React, { useState, useMemo } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -10,7 +9,7 @@ import {
   ColumnDef,
   SortingState,
 } from "@tanstack/react-table";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, Funnel, X } from "lucide-react";
 import { ResourceWrapper } from "@/types/resource";
 import {
   Table,
@@ -27,7 +26,36 @@ type Props = {
 };
 
 export function ResourceTable({ data }: Props) {
-  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [showFilter, setShowFilter] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
+  const [selectedType, setSelectedType] = useState<string[]>([]);
+
+  const uniqueStatuses = useMemo(() => {
+    const setStatus = new Set<string>();
+    data.forEach((d) => setStatus.add(d.resource.metadata.state));
+    return Array.from(setStatus);
+  }, [data]);
+
+  const uniqueTypes = useMemo(() => {
+    const setType = new Set<string>();
+    data.forEach((d) => setType.add(d.resource.metadata.resourceType));
+    return Array.from(setType);
+  }, [data]);
+
+  const filteredData = useMemo(() => {
+    return data.filter((item) => {
+      const statusMatch =
+        selectedStatus.length === 0 ||
+        selectedStatus.includes(item.resource.metadata.state);
+
+      const typeMatch =
+        selectedType.length === 0 ||
+        selectedType.includes(item.resource.metadata.resourceType);
+
+      return statusMatch && typeMatch;
+    });
+  }, [data, selectedStatus, selectedType]);
 
   const columns: ColumnDef<ResourceWrapper>[] = [
     {
@@ -78,8 +106,7 @@ export function ResourceTable({ data }: Props) {
       id: "created",
       header: "Created",
       accessorFn: (row) => row.resource.metadata.createdTime,
-      cell: ({ getValue }) =>
-        format(new Date(getValue<string>()), "PPpp"),
+      cell: ({ getValue }) => format(new Date(getValue<string>()), "PPpp"),
     },
     {
       id: "processed",
@@ -109,9 +136,7 @@ export function ResourceTable({ data }: Props) {
       cell: ({ getValue }) => {
         const val = getValue<string>();
         return val !== "N/A" ? (
-          <div className="whitespace-pre-wrap text-sm text-gray-700">
-            {val}
-          </div>
+          <div className="whitespace-pre-wrap text-sm text-gray-700">{val}</div>
         ) : (
           <span className="italic text-gray-500">N/A</span>
         );
@@ -120,7 +145,7 @@ export function ResourceTable({ data }: Props) {
   ];
 
   const table = useReactTable({
-    data,
+    data: filteredData,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -128,44 +153,126 @@ export function ResourceTable({ data }: Props) {
     getSortedRowModel: getSortedRowModel(),
   });
 
+  const toggleSelection = (
+    value: string,
+    selected: string[],
+    setSelected: React.Dispatch<React.SetStateAction<string[]>>
+  ) => {
+    if (selected.includes(value)) {
+      setSelected(selected.filter((v) => v !== value));
+    } else {
+      setSelected([...selected, value]);
+    }
+  };
+
   return (
-    <div className="overflow-x-auto bg-white rounded-2xl border shadow-md p-4 sm:p-6">
-      <Table className="min-w-[900px] w-full text-sm">
-        <TableHeader>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <TableHead
-                  key={header.id}
-                  className="text-xs text-gray-500 uppercase tracking-wide"
-                >
-                  {flexRender(
-                    header.column.columnDef.header,
-                    header.getContext()
-                  )}
-                </TableHead>
+    <div className="relative">
+      {/* Filter Button */}
+      <div className="mb-4 flex justify-end">
+        <button
+          className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg shadow hover:bg-gray-100"
+          onClick={() => setShowFilter((prev) => !prev)}
+        >
+          <Funnel className="w-4 h-4" />
+          <span>Filter</span>
+        </button>
+      </div>
+
+      {/* Slide-in Filter Panel on Right */}
+      {showFilter && (
+        <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-lg border-l z-50 p-6 overflow-auto">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold">Filter Resources</h2>
+            <button onClick={() => setShowFilter(false)}>
+              <X className="h-5 w-5 text-gray-500 hover:text-gray-700" />
+            </button>
+          </div>
+
+          <div className="mb-6">
+            <h3 className="font-medium mb-2">Status</h3>
+            <div className="max-h-40 overflow-auto border rounded p-2">
+              {uniqueStatuses.map((status) => (
+                <label key={status} className="flex items-center gap-2 mb-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedStatus.includes(status)}
+                    onChange={() => toggleSelection(status, selectedStatus, setSelectedStatus)}
+                  />
+                  <span>{status.replace("PROCESSING_STATE_", "")}</span>
+                </label>
               ))}
-            </TableRow>
-          ))}
-        </TableHeader>
-        <TableBody>
-          {table.getRowModel().rows.map((row) => (
-            <TableRow
-              key={row.id}
-              className="hover:bg-gray-50 transition-colors"
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <h3 className="font-medium mb-2">Type</h3>
+            <div className="max-h-40 overflow-auto border rounded p-2">
+              {uniqueTypes.map((type) => (
+                <label key={type} className="flex items-center gap-2 mb-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedType.includes(type)}
+                    onChange={() => toggleSelection(type, selectedType, setSelectedType)}
+                  />
+                  <span>{type}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button
+              className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 transition"
+              onClick={() => {
+                setSelectedStatus([]);
+                setSelectedType([]);
+              }}
             >
-              {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id} className="py-2 px-3">
-                  {flexRender(
-                    cell.column.columnDef.cell,
-                    cell.getContext()
-                  )}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              Clear
+            </button>
+            <button
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+              onClick={() => setShowFilter(false)}
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="overflow-x-auto bg-white rounded-2xl border shadow-md p-4 sm:p-6">
+        <Table className="min-w-[900px] w-full text-sm">
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className="text-xs text-gray-500 uppercase tracking-wide"
+                  >
+                    {flexRender(
+                      header.column.columnDef.header,
+                      header.getContext()
+                    )}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows.map((row) => (
+              <TableRow key={row.id} className="hover:bg-gray-50 transition-colors">
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell key={cell.id} className="py-2 px-3">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }
