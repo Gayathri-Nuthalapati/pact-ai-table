@@ -30,6 +30,7 @@ export function ResourceTable({ data }: Props) {
   const [showFilter, setShowFilter] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
   const [selectedType, setSelectedType] = useState<string[]>([]);
+  const [searchTerm, setSearchTerm] = useState(""); // ✅ New: Search state
 
   const uniqueStatuses = useMemo(() => {
     const setStatus = new Set<string>();
@@ -43,8 +44,12 @@ export function ResourceTable({ data }: Props) {
     return Array.from(setType);
   }, [data]);
 
+  // ✅ Filtered + searched data
   const filteredData = useMemo(() => {
     return data.filter((item) => {
+      const patientId = item.resource.metadata.identifier.patientId.toLowerCase();
+      const matchesSearch = patientId.includes(searchTerm.toLowerCase());
+
       const statusMatch =
         selectedStatus.length === 0 ||
         selectedStatus.includes(item.resource.metadata.state);
@@ -53,9 +58,9 @@ export function ResourceTable({ data }: Props) {
         selectedType.length === 0 ||
         selectedType.includes(item.resource.metadata.resourceType);
 
-      return statusMatch && typeMatch;
+      return matchesSearch && statusMatch && typeMatch;
     });
-  }, [data, selectedStatus, selectedType]);
+  }, [data, selectedStatus, selectedType, searchTerm]);
 
   const columns: ColumnDef<ResourceWrapper>[] = [
     {
@@ -63,9 +68,7 @@ export function ResourceTable({ data }: Props) {
       header: ({ column }) => (
         <button
           className="flex items-center gap-1 font-medium"
-          onClick={() =>
-            column.toggleSorting(column.getIsSorted() === "asc")
-          }
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           Patient ID <ArrowUpDown className="h-3 w-3" />
         </button>
@@ -167,8 +170,15 @@ export function ResourceTable({ data }: Props) {
 
   return (
     <div className="relative">
-      {/* Filter Button */}
-      <div className="mb-4 flex justify-end">
+      {/* ✅ Search + Filter Controls */}
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <input
+          type="text"
+          placeholder="Search Patient ID..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full sm:w-1/3 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+        />
         <button
           className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg shadow hover:bg-gray-100"
           onClick={() => setShowFilter((prev) => !prev)}
@@ -178,7 +188,7 @@ export function ResourceTable({ data }: Props) {
         </button>
       </div>
 
-      {/* Slide-in Filter Panel on Right */}
+      {/* Slide-in Filter Panel */}
       {showFilter && (
         <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-lg border-l z-50 p-6 overflow-auto">
           <div className="flex justify-between items-center mb-4">
@@ -188,6 +198,7 @@ export function ResourceTable({ data }: Props) {
             </button>
           </div>
 
+          {/* Filter by Status */}
           <div className="mb-6">
             <h3 className="font-medium mb-2">Status</h3>
             <div className="max-h-40 overflow-auto border rounded p-2">
@@ -204,6 +215,7 @@ export function ResourceTable({ data }: Props) {
             </div>
           </div>
 
+          {/* Filter by Type */}
           <div className="mb-6">
             <h3 className="font-medium mb-2">Type</h3>
             <div className="max-h-40 overflow-auto border rounded p-2">
