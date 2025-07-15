@@ -13,6 +13,7 @@ import { ArrowUpDown, Funnel, X, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { useSearchParams, usePathname, useRouter } from "next/navigation";
 import { ResourceWrapper } from "@/types/resource";
+import { Dialog } from "./ui/dialog";
 
 // ✅ Inline fallback if "@/components/ui/table" fails
 const Table = ({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) => (
@@ -216,10 +217,9 @@ export function ResourceTable({ data }: Props) {
       </div>
 
       {/* Modal Filter Panel */}
-      {showFilter && (
-        <div className="fixed inset-0 z-50 bg-black bg-opacity-40 flex items-center justify-center">
-          <div className="bg-white rounded-lg shadow-xl w-[90%] max-w-md p-6 relative">
-            <button
+      <Dialog open={showFilter} onOpenChange={setShowFilter}>
+
+        <button
               onClick={() => setShowFilter(false)}
               className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
               aria-label="Close filter panel"
@@ -271,9 +271,9 @@ export function ResourceTable({ data }: Props) {
                 Apply
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          
+      </Dialog>
+      
 
       {/* Table */}
       <div className="overflow-x-auto bg-white rounded-2xl border shadow-md p-4 sm:p-6">
