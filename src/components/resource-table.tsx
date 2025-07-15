@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -9,58 +9,72 @@ import {
   ColumnDef,
   SortingState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, Funnel, X } from "lucide-react";
-import { ResourceWrapper } from "@/types/resource";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table";
+import { ArrowUpDown, Funnel, X, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
+import { useSearchParams, usePathname, useRouter } from "next/navigation";
+import { ResourceWrapper } from "@/types/resource";
+
+// ✅ Inline fallback if "@/components/ui/table" fails
+const Table = ({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) => (
+  <table {...props}>{children}</table>
+);
+const TableHeader = ({ children }: { children: React.ReactNode }) => <thead>{children}</thead>;
+const TableBody = ({ children }: { children: React.ReactNode }) => <tbody>{children}</tbody>;
+const TableRow = ({ children, ...props }: React.HTMLAttributes<HTMLTableRowElement>) => (
+  <tr {...props}>{children}</tr>
+);
+const TableHead = ({ children, ...props }: React.ThHTMLAttributes<HTMLTableCellElement>) => (
+  <th {...props}>{children}</th>
+);
+const TableCell = ({ children, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
+  <td {...props}>{children}</td>
+);
+
+function useDebounce<T>(value: T, delay = 300): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debounced;
+}
 
 type Props = {
   data: ResourceWrapper[];
 };
 
 export function ResourceTable({ data }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showFilter, setShowFilter] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
-  const [selectedType, setSelectedType] = useState<string[]>([]);
-  const [searchTerm, setSearchTerm] = useState(""); // ✅ New: Search state
+  const [selectedStatus, setSelectedStatus] = useState<string[]>(searchParams.get("status")?.split(",") || []);
+  const [selectedType, setSelectedType] = useState<string[]>(searchParams.get("type")?.split(",") || []);
+  const [searchTerm, setSearchTerm] = useState(searchParams.get("search") || "");
+  const debouncedSearch = useDebounce(searchTerm);
 
-  const uniqueStatuses = useMemo(() => {
-    const setStatus = new Set<string>();
-    data.forEach((d) => setStatus.add(d.resource.metadata.state));
-    return Array.from(setStatus);
-  }, [data]);
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (selectedStatus.length) params.set("status", selectedStatus.join(","));
+    if (selectedType.length) params.set("type", selectedType.join(","));
+    if (searchTerm) params.set("search", searchTerm);
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [selectedStatus, selectedType, searchTerm, router, pathname]);
 
-  const uniqueTypes = useMemo(() => {
-    const setType = new Set<string>();
-    data.forEach((d) => setType.add(d.resource.metadata.resourceType));
-    return Array.from(setType);
-  }, [data]);
+  const uniqueStatuses = useMemo(() => Array.from(new Set(data.map((d) => d.resource.metadata.state))), [data]);
+  const uniqueTypes = useMemo(() => Array.from(new Set(data.map((d) => d.resource.metadata.resourceType))), [data]);
 
-  // ✅ Filtered + searched data
   const filteredData = useMemo(() => {
     return data.filter((item) => {
-      const patientId = item.resource.metadata.identifier.patientId.toLowerCase();
-      const matchesSearch = patientId.includes(searchTerm.toLowerCase());
-
-      const statusMatch =
-        selectedStatus.length === 0 ||
-        selectedStatus.includes(item.resource.metadata.state);
-
-      const typeMatch =
-        selectedType.length === 0 ||
-        selectedType.includes(item.resource.metadata.resourceType);
-
+      const id = item.resource.metadata.identifier.patientId.toLowerCase();
+      const matchesSearch = id.includes(debouncedSearch.toLowerCase());
+      const statusMatch = selectedStatus.length === 0 || selectedStatus.includes(item.resource.metadata.state);
+      const typeMatch = selectedType.length === 0 || selectedType.includes(item.resource.metadata.resourceType);
       return matchesSearch && statusMatch && typeMatch;
     });
-  }, [data, selectedStatus, selectedType, searchTerm]);
+  }, [data, selectedStatus, selectedType, debouncedSearch]);
 
   const columns: ColumnDef<ResourceWrapper>[] = [
     {
@@ -117,11 +131,7 @@ export function ResourceTable({ data }: Props) {
       accessorFn: (row) => row.resource.metadata.processedTime || "N/A",
       cell: ({ getValue }) => {
         const val = getValue<string>();
-        return val !== "N/A" ? (
-          format(new Date(val), "PPpp")
-        ) : (
-          <span className="italic text-gray-500">N/A</span>
-        );
+        return val !== "N/A" ? format(new Date(val), "PPpp") : <span className="italic text-gray-500">N/A</span>;
       },
     },
     {
@@ -168,9 +178,17 @@ export function ResourceTable({ data }: Props) {
     }
   };
 
+  const handleReset = () => {
+    setSearchTerm("");
+    setSelectedStatus([]);
+    setSelectedType([]);
+    setSorting([]);
+    setShowFilter(false);
+  };
+
   return (
     <div className="relative">
-      {/* ✅ Search + Filter Controls */}
+      {/* Search + Filter Controls */}
       <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <input
           type="text"
@@ -179,75 +197,80 @@ export function ResourceTable({ data }: Props) {
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full sm:w-1/3 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
         />
-        <button
-          className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg shadow hover:bg-gray-100"
-          onClick={() => setShowFilter((prev) => !prev)}
-        >
-          <Funnel className="w-4 h-4" />
-          <span>Filter</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowFilter(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg shadow hover:bg-gray-100"
+          >
+            <Funnel className="w-4 h-4" /> Filter
+          </button>
+          <button
+            onClick={handleReset}
+            className="flex items-center gap-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+            aria-label="Reset filters"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Reset
+          </button>
+        </div>
       </div>
 
-      {/* Slide-in Filter Panel */}
+      {/* Modal Filter Panel */}
       {showFilter && (
-        <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-lg border-l z-50 p-6 overflow-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold">Filter Resources</h2>
-            <button onClick={() => setShowFilter(false)}>
-              <X className="h-5 w-5 text-gray-500 hover:text-gray-700" />
-            </button>
-          </div>
-
-          {/* Filter by Status */}
-          <div className="mb-6">
-            <h3 className="font-medium mb-2">Status</h3>
-            <div className="max-h-40 overflow-auto border rounded p-2">
-              {uniqueStatuses.map((status) => (
-                <label key={status} className="flex items-center gap-2 mb-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedStatus.includes(status)}
-                    onChange={() => toggleSelection(status, selectedStatus, setSelectedStatus)}
-                  />
-                  <span>{status.replace("PROCESSING_STATE_", "")}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Filter by Type */}
-          <div className="mb-6">
-            <h3 className="font-medium mb-2">Type</h3>
-            <div className="max-h-40 overflow-auto border rounded p-2">
-              {uniqueTypes.map((type) => (
-                <label key={type} className="flex items-center gap-2 mb-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedType.includes(type)}
-                    onChange={() => toggleSelection(type, selectedType, setSelectedType)}
-                  />
-                  <span>{type}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2">
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-40 flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-xl w-[90%] max-w-md p-6 relative">
             <button
-              className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 transition"
-              onClick={() => {
-                setSelectedStatus([]);
-                setSelectedType([]);
-              }}
-            >
-              Clear
-            </button>
-            <button
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
               onClick={() => setShowFilter(false)}
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
+              aria-label="Close filter panel"
             >
-              Apply
+              <X className="w-5 h-5" />
             </button>
+            <h2 className="text-lg font-semibold mb-4">Filter Resources</h2>
+
+            <div className="mb-4">
+              <h3 className="font-medium mb-2">Status</h3>
+              <div className="max-h-40 overflow-auto border rounded p-2">
+                {uniqueStatuses.map((status) => (
+                  <label key={status} className="flex items-center gap-2 mb-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedStatus.includes(status)}
+                      onChange={() => toggleSelection(status, selectedStatus, setSelectedStatus)}
+                    />
+                    <span>{status.replace("PROCESSING_STATE_", "")}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <h3 className="font-medium mb-2">Type</h3>
+              <div className="max-h-40 overflow-auto border rounded p-2">
+                {uniqueTypes.map((type) => (
+                  <label key={type} className="flex items-center gap-2 mb-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedType.includes(type)}
+                      onChange={() => toggleSelection(type, selectedType, setSelectedType)}
+                    />
+                    <span>{type}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300" onClick={handleReset}>
+                <RotateCcw className="inline w-4 h-4 mr-1" /> Reset
+              </button>
+              <button
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                onClick={() => setShowFilter(false)}
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -259,14 +282,8 @@ export function ResourceTable({ data }: Props) {
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className="text-xs text-gray-500 uppercase tracking-wide"
-                  >
-                    {flexRender(
-                      header.column.columnDef.header,
-                      header.getContext()
-                    )}
+                  <TableHead key={header.id} className="text-xs text-gray-500 uppercase tracking-wide">
+                    {flexRender(header.column.columnDef.header, header.getContext())}
                   </TableHead>
                 ))}
               </TableRow>
